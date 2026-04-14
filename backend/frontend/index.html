@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Gemma Pharma AI</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.0.4/3Dmol-min.js"></script>
+
+<style>
+body { background:black; color:white; font-family:monospace; }
+.viewer { height:400px; border:1px solid #444; }
+</style>
+</head>
+
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const {useState,useEffect,useRef}=React;
+
+const speak = (text)=>{
+  const u=new SpeechSynthesisUtterance(text);
+  speechSynthesis.speak(u);
+};
+
+const Viewer=({data})=>{
+  const ref=useRef();
+
+  useEffect(()=>{
+    if(!data || !window.$3Dmol) return;
+
+    const viewer=$3Dmol.createViewer(ref.current,{backgroundColor:"black"});
+
+    try{
+      if(data.type==="protein"){
+        if(data.pdb_data){
+          viewer.addModel(data.pdb_data,"pdb");
+        } else {
+          $3Dmol.download(`pdb:${data.pdb}`,viewer,{},()=>{
+            viewer.setStyle({}, {cartoon:{}});
+            viewer.render();
+          });
+        }
+      }
+
+      if(data.type==="molecule"){
+        viewer.addModel(data.smiles,"smi");
+        viewer.setStyle({}, {stick:{}});
+        viewer.render();
+      }
+    }catch{
+      console.log("Viewer error handled");
+    }
+
+  },[data]);
+
+  return <div ref={ref} className="viewer"></div>;
+};
+
+const App=()=>{
+  const [query,setQuery]=useState("");
+  const [data,setData]=useState(null);
+
+  const run=async()=>{
+    try{
+      const res=await fetch(`http://localhost:8000/analyze?q=${query}`);
+      const d=await res.json();
+      setData(d);
+      if(d.explanation) speak(d.explanation);
+    }catch{
+      alert("System handled error gracefully");
+    }
+  };
+
+  const upload=async(e)=>{
+    const file=e.target.files[0];
+    const form=new FormData();
+    form.append("file",file);
+
+    const res=await fetch("http://localhost:8000/upload",{
+      method:"POST",
+      body:form
+    });
+
+    const d=await res.json();
+    setData(d);
+    speak(d.explanation);
+  };
+
+  return (
+    <div className="p-6 max-w-4xl mx-auto">
+
+      <h1 className="text-2xl mb-4">GEMMA PHARMA AI</h1>
+
+      <textarea
+        className="w-full p-3 bg-black border border-white"
+        placeholder="Ask anything: drug for cancer, aspirin, covid vaccine..."
+        value={query}
+        onChange={e=>setQuery(e.target.value)}
+      />
+
+      <button onClick={run} className="mt-3 px-6 py-2 border border-white">
+        Analyze
+      </button>
+
+      <input type="file" onChange={upload} className="mt-3"/>
+
+      {data && <Viewer data={data}/>}
+
+      {data?.properties && (
+        <div className="mt-4 border p-4">
+          <h3>ADMET</h3>
+          {Object.entries(data.properties).map(([k,v])=>(
+            <div key={k}>{k}: {v}</div>
+          ))}
+        </div>
+      )}
+
+      {data?.docking && (
+        <div className="mt-4 border p-4">
+          Docking Score: {data.docking}
+        </div>
+      )}
+
+      {data?.candidate && (
+        <div className="mt-4 border p-4">
+          AI Candidate: {data.candidate}
+        </div>
+      )}
+
+      {data?.explanation && (
+        <div className="mt-4 border p-4">
+          {data.explanation}
+        </div>
+      )}
+
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
